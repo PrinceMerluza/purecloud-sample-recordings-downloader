@@ -6,6 +6,7 @@ import com.mypurecloud.sdk.v2.Configuration;
 import com.mypurecloud.sdk.v2.api.ConversationsApi;
 import com.mypurecloud.sdk.v2.api.RecordingApi;
 import com.mypurecloud.sdk.v2.model.*;
+import com.mypurecloud.sdk.v2.model.AnalyticsSession.MediaTypeEnum;
 
 import java.io.*;
 import java.net.*;
@@ -13,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class Main {
@@ -40,11 +42,11 @@ public class Main {
         ConversationsApi conversationsApi = new ConversationsApi();
         RecordingApi recordingApi = new RecordingApi();
 
-        // Get Conversation IDs by Interval (API Limit for interval: 7 days)
-        List<AnalyticsConversation> conversations = getConversations(interval, conversationsApi);
+        // Get Conversation IDs and corresponding Media Type within a date interval
+        HashMap<String, MediaTypeEnum> conversationsIDTypeMap = getConversations(interval, conversationsApi);
 
         // Request batch download for conversations (API Limit: 100)
-        String jobID = requestBatchDownload(conversations, recordingApi);
+        String jobID = requestBatchDownload(conversationsIDTypeMap, recordingApi);
 
         // Get all conversations with recordings
         List<BatchDownloadJobResult> jobResults = getJobResults(jobID, recordingApi);
@@ -60,16 +62,27 @@ public class Main {
     }
 
     /**
-     * Get the conversation made within a specified duration
+     * Get the conversation made within a specified duration. MediaType will be determined by media type of
+     * the first session in the conversation.
      * @param interval  string interval with format YYYY-MM-DDThh:mm:ss/YYYY-MM-DDThh:mm:ss
      * @param api       conversations API to be used
-     * @return          String List of conversation ids
+     * @return          Map that cocntains Conversations information
+     *                  K: Conversation ID, V: MediaType
      */
-    private static List<AnalyticsConversation> getConversations(String interval, ConversationsApi api) throws ApiException, IOException
+    private static HashMap<String, MediaTypeEnum> getConversations(String interval, ConversationsApi api) throws ApiException, IOException
     {
-        ConversationQuery query = new ConversationQuery().interval(interval);
+        // Request the list of conversations
+        List<AnalyticsConversation> conversations = api.postAnalyticsConversationsDetailsQuery(new ConversationQuery().interval(interval)).getConversations();
 
-        return api.postAnalyticsConversationsDetailsQuery(query).getConversations();
+        // HashMap to contain the conversations and media types.
+        HashMap<String, MediaTypeEnum> conversationsMap = new HashMap<String, MediaTypeEnum>;
+
+        // Store the conversation IDs and the corresponding media type
+        for(AnalyticsConversation c : conversations){
+            conversationsMap.put(c.getConversationId(), c.getParticipants().get(0).getSessions().get(0).getMediaType());
+        }
+
+        return conversationsMap;
     }
 
     /**
@@ -78,10 +91,10 @@ public class Main {
      * @param api               RecordingApi instance to use
      * @return                  ID of the batch download request job
      */
-    private static String requestBatchDownload(List<String> conversationIDs, RecordingApi api) throws ApiException, IOException
+    private static String requestBatchDownload(List<AnalyticsConversation> conversations, RecordingApi api) throws ApiException, IOException
     {
         // Convert List of Strings to List of BatchDownloadRequests
-        List<BatchDownloadRequest> batchRequests = conversationIDs.stream()
+        List<BatchDownloadRequest> batchRequests = conversations.stream()
                                                                   .map(c -> new BatchDownloadRequest().conversationId(c))
                                                                   .collect(Collectors.toList());
 
