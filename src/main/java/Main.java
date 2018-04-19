@@ -31,6 +31,8 @@ public class Main {
         System.out.println("Enter Date Interval (YYYY-MM-DDThh:mm:ss/YYYY-MM-DDThh:mm:ss): ");
         String interval = s.nextLine();
 
+        System.out.println("Working...");
+
         // Configure SDK settings
         String accessToken = getToken(clientId, clientSecret);
         Configuration.setDefaultApiClient(ApiClient.Builder.standard()
@@ -43,10 +45,10 @@ public class Main {
         RecordingApi recordingApi = new RecordingApi();
 
         // Get Conversation IDs and corresponding Media Type within a date interval
-        HashMap<String, MediaTypeEnum> conversationsIDTypeMap = getConversations(interval, conversationsApi);
+        HashMap<String, MediaTypeEnum> conversationsMapIDType = getConversations(interval, conversationsApi);
 
-        // Request batch download for conversations (API Limit: 100)
-        String jobID = requestBatchDownload(conversationsIDTypeMap, recordingApi);
+        // Use the Conversation IDs and request a batch download for the conversations.
+        String jobID = requestBatchDownload(new ArrayList<String>(conversationsMapIDType.keySet()), recordingApi);
 
         // Get all conversations with recordings
         List<BatchDownloadJobResult> jobResults = getJobResults(jobID, recordingApi);
@@ -54,10 +56,17 @@ public class Main {
         // Download all the recordings and separate into folders named after the Conversation ID
         System.out.println("Currently Downloading...");
         for(BatchDownloadJobResult j: jobResults){
+            // Create the directories for each unique Conversation IDs
             new File("./recordings/" + j.getConversationId()).mkdirs();
-            downloadRecording(j.getResultUrl(), "./recordings/" + j.getConversationId());
+
+            // Determine the file extension to assign
+            String extension = getExtensionFromMediaType(conversationsMapIDType.get(j.getConversationId()));
+
+            // Download the recording to appropriate folder
+            downloadRecording(j.getResultUrl(), "./recordings/" + j.getConversationId(), extension);
         }
 
+        // Final Output
         System.out.println("DONE");
     }
 
@@ -75,7 +84,7 @@ public class Main {
         List<AnalyticsConversation> conversations = api.postAnalyticsConversationsDetailsQuery(new ConversationQuery().interval(interval)).getConversations();
 
         // HashMap to contain the conversations and media types.
-        HashMap<String, MediaTypeEnum> conversationsMap = new HashMap<String, MediaTypeEnum>;
+        HashMap<String, MediaTypeEnum> conversationsMap = new HashMap<>();
 
         // Store the conversation IDs and the corresponding media type
         for(AnalyticsConversation c : conversations){
@@ -91,10 +100,10 @@ public class Main {
      * @param api               RecordingApi instance to use
      * @return                  ID of the batch download request job
      */
-    private static String requestBatchDownload(List<AnalyticsConversation> conversations, RecordingApi api) throws ApiException, IOException
+    private static String requestBatchDownload(List<String> conversationIDs, RecordingApi api) throws ApiException, IOException
     {
         // Convert List of Strings to List of BatchDownloadRequests
-        List<BatchDownloadRequest> batchRequests = conversations.stream()
+        List<BatchDownloadRequest> batchRequests = conversationIDs.stream()
                                                                   .map(c -> new BatchDownloadRequest().conversationId(c))
                                                                   .collect(Collectors.toList());
 
@@ -123,11 +132,6 @@ public class Main {
             System.out.println("Processed: " + resultCount + " / " + expectedCount);
         }while(resultCount < expectedCount);
 
-
-        for(BatchDownloadJobResult x : api.getRecordingBatchrequest(jobID).getResults()){
-            System.out.print(x.getResultUrl());
-        }
-
         // Filter the list to only include those with recording urls
         return api.getRecordingBatchrequest(jobID).getResults()
                 .stream()
@@ -139,13 +143,30 @@ public class Main {
      * Download the recording as a wav file
      * @param sourceURL         The URL of the recording
      * @param targetDirectory   Path to save the file
+     * @param extension         File extension (Ex: .wav, .txt...)
      */
-    private static void downloadRecording(String sourceURL, String targetDirectory) throws IOException
+    private static void downloadRecording(String sourceURL, String targetDirectory, String extension) throws IOException
     {
         URL url = new URL(sourceURL);
         String fileName = sourceURL.substring(sourceURL.lastIndexOf('/') + 1, sourceURL.indexOf('?'));
-        Path targetPath = new File(targetDirectory + File.separator + fileName + ".wav").toPath();
+        Path targetPath = new File(targetDirectory + File.separator + fileName + extension).toPath();
         Files.copy(url.openStream(), targetPath, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    /**
+     * Get the appropriate extension from the given Media Type
+     * @param mediaType     Media type of the file/conversation
+     * @return              Appropriate extension for the file (Ex: .wav, .txt, etc.)
+     */
+    private static String getExtensionFromMediaType(MediaTypeEnum mediaType){
+        switch(mediaType){
+            case VOICE:
+                return ".wav";
+            case CHAT: case EMAIL:
+                return ".txt";
+            default:
+                return "";
+        }
     }
 
     /**
