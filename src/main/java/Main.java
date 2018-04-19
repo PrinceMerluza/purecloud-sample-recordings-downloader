@@ -41,10 +41,10 @@ public class Main {
         RecordingApi recordingApi = new RecordingApi();
 
         // Get Conversation IDs by Interval (API Limit for interval: 7 days)
-        List<String> conversationIDs = getConversationIDs(interval, conversationsApi);
+        List<AnalyticsConversation> conversations = getConversations(interval, conversationsApi);
 
         // Request batch download for conversations (API Limit: 100)
-        String jobID = requestBatchDownload(conversationIDs, recordingApi);
+        String jobID = requestBatchDownload(conversations, recordingApi);
 
         // Get all conversations with recordings
         List<BatchDownloadJobResult> jobResults = getJobResults(jobID, recordingApi);
@@ -60,19 +60,16 @@ public class Main {
     }
 
     /**
-     * Get the conversation ids of conversations made within a specified duration
+     * Get the conversation made within a specified duration
      * @param interval  string interval with format YYYY-MM-DDThh:mm:ss/YYYY-MM-DDThh:mm:ss
      * @param api       conversations API to be used
      * @return          String List of conversation ids
      */
-    private static List<String> getConversationIDs(String interval, ConversationsApi api) throws ApiException, IOException
+    private static List<AnalyticsConversation> getConversations(String interval, ConversationsApi api) throws ApiException, IOException
     {
         ConversationQuery query = new ConversationQuery().interval(interval);
-        AnalyticsConversationQueryResponse response = api.postAnalyticsConversationsDetailsQuery(query);
-        return response.getConversations()
-                .stream()
-                .map(c -> c.getConversationId())
-                .collect(Collectors.toList());
+
+        return api.postAnalyticsConversationsDetailsQuery(query).getConversations();
     }
 
     /**
@@ -112,6 +109,11 @@ public class Main {
             resultCount = api.getRecordingBatchrequest(jobID).getResultCount();
             System.out.println("Processed: " + resultCount + " / " + expectedCount);
         }while(resultCount < expectedCount);
+
+
+        for(BatchDownloadJobResult x : api.getRecordingBatchrequest(jobID).getResults()){
+            System.out.print(x.getResultUrl());
+        }
 
         // Filter the list to only include those with recording urls
         return api.getRecordingBatchrequest(jobID).getResults()
